@@ -2,11 +2,8 @@ import streamlit as st
 import joblib
 import re
 import os
-import sys
-import subprocess
-from pathlib import Path
 
-# Download NLTK data
+# Download NLTK data only
 import nltk
 try:
     nltk.data.find('corpora/stopwords')
@@ -20,31 +17,8 @@ except LookupError:
     with st.spinner("Downloading language resources..."):
         nltk.download('wordnet', quiet=True)
 
-try:
-    nltk.data.find('corpora/omw-1.4')
-except LookupError:
-    with st.spinner("Downloading language resources..."):
-        nltk.download('omw-1.4', quiet=True)
-
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-
-# Load spaCy model
-import spacy
-
-@st.cache_resource
-def load_spacy_model():
-    """Load spaCy model with error handling."""
-    try:
-        return spacy.load("en_core_web_sm")
-    except OSError:
-        st.error("spaCy English model not found. Installing...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
-            return spacy.load("en_core_web_sm")
-        except Exception as e:
-            st.error(f"Failed to install spaCy model: {e}")
-            st.stop()
 
 @st.cache_resource
 def load_model_and_resources():
@@ -60,22 +34,25 @@ def load_model_and_resources():
         # Load model
         model = joblib.load(model_path)
         
-        # Load spaCy model
-        nlp = load_spacy_model()
-        
-        # Initialize stopwords
+        # Use NLTK stopwords only (avoiding spaCy complications)
         try:
-            list1 = nlp.Defaults.stop_words
-            list2 = stopwords.words('english')
-            combined_stopwords = set(list1) | set(list2)
+            nltk_stopwords = set(stopwords.words('english'))
         except Exception as e:
-            st.warning(f"Error loading stopwords: {e}. Using default English stopwords.")
-            combined_stopwords = set(stopwords.words('english'))
+            st.warning(f"Error loading NLTK stopwords: {e}. Using basic stopwords.")
+            # Hardcoded basic stopwords as fallback
+            nltk_stopwords = {
+                'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 
+                'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 
+                'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 
+                'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 
+                'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their'
+            }
         
         # Initialize lemmatizer
         lemmatizer = WordNetLemmatizer()
         
-        return model, combined_stopwords, lemmatizer
+        return model, nltk_stopwords, lemmatizer
         
     except Exception as e:
         st.error(f"Error loading model or resources: {e}")
@@ -117,7 +94,11 @@ def clean_text(text, stopwords_set, lemmatizer):
     # Remove stopwords and lemmatize
     for word in text.split():
         if word and word not in stopwords_set:
-            string += lemmatizer.lemmatize(word) + " "
+            try:
+                string += lemmatizer.lemmatize(word) + " "
+            except:
+                # Fallback if lemmatization fails
+                string += word + " "
     
     return string.strip()
 
